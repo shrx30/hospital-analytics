@@ -1,0 +1,11 @@
+[theme]
+primaryColor = "#0D9488" # Modern Teal
+backgroundColor = "#0F172A" # Dark Slate
+secondaryBackgroundColor = "#1E293B" # Darker Slate for sidebar/widgets
+textColor = "#F8FAFC" # Off-white text
+font = "sans serif"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
