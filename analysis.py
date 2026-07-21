@@ -208,12 +208,148 @@ def get_operations_insights():
 
     return insights
 
+def get_db_schema():
+    """
+    Dynamically queries SQLite database schema to build a schema context
+    containing tables, headers, and types.
+    """
+    if not verify_db_exists():
+        return ""
+    
+    schema_details = []
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        # Get list of all tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [t[0] for t in cursor.fetchall() if not t[0].startswith("sqlite_")]
+        
+        for table in tables:
+            cursor.execute(f"PRAGMA table_info({table});")
+            columns = cursor.fetchall()
+            col_desc = [f"{col[1]} ({col[2]})" for col in columns]
+            schema_details.append(f"Table: {table}\nColumns: {', '.join(col_desc)}")
+            
+    return "\n\n".join(schema_details)
+
+def query_db_with_ai(question, api_key, model="meta/llama-3.1-70b-instruct"):
+    """
+    Main orchestrator for AI Chatbot:
+    1. Generates SQL based on database schema via NVIDIA NIM.
+    2. Runs query on SQLite.
+    3. Feeds back to LLM to write a friendly natural language response.
+    Returns:
+        dict containing 'sql', 'results' (DataFrame), 'response' (str), and 'error' (str or None)
+    """
+    from openai import OpenAI
+    
+    result = {
+        "sql": "",
+        "results": None,
+        "response": "",
+        "error": None
+    }
+    
+    # Check API key
+    if not api_key:
+        result["error"] = "NVIDIA API Key is missing. Please set it in the sidebar."
+        return result
+        
+    try:
+        # Build client
+        client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=api_key
+        )
+        
+        schema = get_db_schema()
+        
+        # System instructions to produce strictly SQL code blocks
+        system_prompt = f"""You are a specialized SQL expert database assistant for a hospital HMIS system.
+Your job is to translate the user's natural language question into a syntactic, valid SQLite query.
+Here is the strict database schema detail:
+{schema}
+
+CRITICAL RULES:
+1. Return ONLY valid SQLite SQL statements within a single markdown SQL code block. For example:
+   ```sql
+   SELECT ... LIMIT 10;
+   ```
+2. Do not explain the query. Do not write text before or after the code block.
+3. Use only tables and columns described in the schema.
+4. If writing date operations, remember this is SQLite, so use julianday(), strftime(), etc.
+5. Limit results to a maximum of 100 rows unless specified otherwise.
+"""
+        
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}
+            ],
+            temperature=0.0
+        )
+        
+        sql_content = response.choices[0].message.content.strip()
+        
+        # Extract SQL from markdown code block
+        sql_query = ""
+        if "```sql" in sql_content:
+            sql_query = sql_content.split("```sql")[1].split("```")[0].strip()
+        elif "```" in sql_content:
+            sql_query = sql_content.split("```")[1].split("```")[0].strip()
+        else:
+            sql_query = sql_content
+            
+        result["sql"] = sql_query
+        
+        # Verify and run the query
+        try:
+            df = run_query(sql_query)
+            result["results"] = df
+        except Exception as query_err:
+            result["error"] = f"SQLite Error: {query_err}"
+            # Still attempt to give a friendly response that it failed
+            return result
+            
+        # Generate friendly descriptive narrative
+        data_preview = df.head(15).to_string()
+        narrative_prompt = f"""You are a professional healthcare business analyst.
+The user asked: "{question}"
+To answer it, this SQL query was run:
+```sql
+{sql_query}
+```
+Here is the resulting table output from the database:
+{data_preview}
+(Total rows returned: {len(df)})
+
+Write a concise, natural language response summarizing the findings for a hospital executive. 
+Highlight key numbers, metrics, or insights, and provide one operational suggestion based on this data.
+"""
+        
+        narrative_response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "user", "content": narrative_prompt}
+            ],
+            temperature=0.7
+        )
+        
+        result["response"] = narrative_response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        result["error"] = f"NVIDIA NIM API Error: {e}"
+        
+    return result
+
 if __name__ == "__main__":
     # Test queries
     if verify_db_exists():
         print("Testing statistical queries:")
         print(f"Overall stats:\n{get_overall_stats()}")
         print(f"Admissions:\n{get_admissions_by_dept().head(2)}")
+        print("\nGet operations schema:")
+        print(get_db_schema()[:400] + "...")
         print("\nOperations insights:")
         for ins in get_operations_insights():
             print(f"- [{ins['insight_type']}] {ins['observation']}\n  Rec: {ins['recommendation']}")

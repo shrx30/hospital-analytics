@@ -54,6 +54,7 @@ The dataset models a full hospital relational schema with 19 tables:
   3. *Operations Dashboard*: Real-time ward capacity tracking and doctor clinic workload graphs.
   4. *Financial Dashboard*: Stacked billing collections tracking, and insurance claims distribution tables.
   5. *Inventory Dashboard*: Interactive safety reorder gauges and manufacturer reliability indices.
+* **AI Operations Assistant**: A natural language chat assistant powered by **NVIDIA NIM API** endpoints. It translates user queries (like *"Show me the average patient stay by department"*) into active SQLite queries, runs them against the database, displays the outputs, and writes human-friendly operational summaries.
 
 ---
 
@@ -121,9 +122,19 @@ This script will download the HMIS dataset using `kagglehub`, create `/data`, co
 ### 4. Run the Streamlit App
 Run:
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 A browser tab will automatically launch at `http://localhost:8501`.
+
+### 5. Chatbot Setup
+To use the **AI Operations Assistant** page:
+1. Ensure your package dependencies are fully updated (`pip install -r requirements.txt`).
+2. Provide your **NVIDIA API Key** (starting with `nvapi-`) in the page's sidebar input field.
+3. Alternatively, you can set it as a system environment variable before starting the server:
+   ```powershell
+   # Windows PowerShell
+   $env:NVIDIA_API_KEY="your_nvapi_key_here"
+   ```
 
 ---
 
